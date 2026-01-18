@@ -41,7 +41,9 @@ services:
     volumes:
       - es_data:/usr/share/elasticsearch/data
     networks:
-      - logpulse
+      logpulse:
+        aliases:
+          - elasticsearch
 
   prometheus:
     image: prom/prometheus:v2.49.1
@@ -53,7 +55,9 @@ services:
     depends_on:
       - otel-collector
     networks:
-      - logpulse
+      logpulse:
+        aliases:
+          - prometheus
 
   nginx:
     image: nginx:1.25-alpine
