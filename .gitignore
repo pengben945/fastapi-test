@@ -1,3 +1,5 @@
+nginx/.htpasswd
+nginx/certs/
 .env
 *.pem
 *.private-key

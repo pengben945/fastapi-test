@@ -34,6 +34,41 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 uvicorn app.main:app --reload
 - `POST /employees/{id}/attendance` check-in/out
 - `POST /payroll/run` simulate payroll run
 
+## Public access without domain (self-signed TLS)
+
+This setup exposes Elasticsearch and Prometheus through Nginx on port 443 with
+Basic Auth and a self-signed certificate.
+
+### Steps on EC2
+
+1. Generate a self-signed certificate (replace with your public IP):
+
+   ```bash
+   chmod +x scripts/gen-self-signed-cert.sh
+   ./scripts/gen-self-signed-cert.sh 47.128.81.143
+   ```
+
+2. Create Basic Auth credentials:
+
+   ```bash
+   sudo apt install -y apache2-utils
+   htpasswd -c nginx/.htpasswd admin
+   ```
+
+3. Start the stack:
+
+   ```bash
+   docker compose up -d
+   ```
+
+### Access
+
+- Elasticsearch: `https://<PUBLIC_IP>/es/`
+- Prometheus: `https://<PUBLIC_IP>/prom/`
+
+Browsers will warn about the self-signed certificate. Use "Proceed anyway" or
+configure your client to skip TLS verification.
+
 ## Configuration
 
 - `SIM_ENABLED`: enable background simulation (default: true)
