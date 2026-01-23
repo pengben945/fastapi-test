@@ -112,7 +112,6 @@ curl -s "http://127.0.0.1:9090/api/v1/query?query=logpulse_app_requests_total" |
 ```bash
 curl -k -u admin:<PASSWORD> "https://<PUBLIC_IP>/es/logpulse-logs/_search?size=1&sort=@timestamp:desc" | head -c 1000
 ```
-
 ---
 
 ## 7. GitHub Actions 自动部署触发
