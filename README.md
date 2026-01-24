@@ -39,6 +39,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 uvicorn app.main:app --reload
 - `POST /assets/{id}/assign` assign asset
 - `POST /assets/{id}/return` return asset
 - `POST /assets/{id}/retire` retire asset
+- `POST /surveys/satisfaction` submit satisfaction survey
 - `POST /employees/{id}/transfer` transfer department
 - `POST /employees/{id}/promotion` promote employee
 - `POST /payroll/run` simulate payroll run

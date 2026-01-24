@@ -45,6 +45,7 @@ class Simulator:
             "asset_assign",
             "asset_return",
             "asset_retire",
+            "satisfaction_survey",
             "payroll",
             "leave_request",
             "leave_decision",
@@ -190,6 +191,18 @@ class Simulator:
                 return
             payload = {"reason": random.choice(["obsolete", "broken"])}
             await client.post(f"{self.base_url}/assets/{asset_id}/retire", json=payload)
+            return
+
+        if action == "satisfaction_survey":
+            if not self._employees:
+                return
+            payload = {
+                "employee_id": random.choice(self._employees),
+                "score": random.randint(1, 5),
+                "comment": random.choice(["good", "ok", "needs work"]),
+                "category": random.choice(["worklife", "benefits", "culture"]),
+            }
+            await client.post(f"{self.base_url}/surveys/satisfaction", json=payload)
             return
 
         if action == "leave_request":

@@ -46,6 +46,9 @@ asset_returns = meter.create_counter(
 asset_retirements = meter.create_counter(
     "asset_retirements_total", description="Asset retirements"
 )
+satisfaction_surveys = meter.create_counter(
+    "satisfaction_surveys_total", description="Satisfaction surveys submitted"
+)
 payroll_runs = meter.create_counter(
     "payroll_runs_total", description="Payroll runs"
 )
@@ -283,6 +286,13 @@ class AssetRetirePayload(BaseModel):
     reason: str
 
 
+class SatisfactionSurveyPayload(BaseModel):
+    employee_id: int
+    score: int
+    comment: str | None = None
+    category: str | None = None
+
+
 def create_app() -> FastAPI:
     setup_logging()
     setup_telemetry(SERVICE_NAME)
@@ -295,6 +305,7 @@ def create_app() -> FastAPI:
     app.state.attendance = []
     app.state.attendance_anomalies = {}
     app.state.assets = {}
+    app.state.satisfaction_surveys = []
     app.state.leave_requests = {}
     app.state.travel_requests = {}
     app.state.performance_reviews = {}
@@ -1028,6 +1039,32 @@ def create_app() -> FastAPI:
         asset_retirements.add(1, {"asset_type": asset["asset_type"]})
         logger.info("asset retired id=%s reason=%s", asset_id, payload.reason)
         return asset
+
+    @app.post("/surveys/satisfaction")
+    async def submit_satisfaction_survey(
+        payload: SatisfactionSurveyPayload,
+    ) -> dict[str, int | str]:
+        if payload.employee_id not in app.state.employees:
+            raise HTTPException(status_code=404, detail="employee not found")
+        if payload.score < 1 or payload.score > 5:
+            raise HTTPException(status_code=400, detail="invalid score")
+        category = (payload.category or "general").strip().lower()
+        record = {
+            "employee_id": payload.employee_id,
+            "score": payload.score,
+            "comment": payload.comment,
+            "category": category,
+            "created_at": time.time(),
+        }
+        app.state.satisfaction_surveys.append(record)
+        satisfaction_surveys.add(1, {"category": category, "score": str(payload.score)})
+        logger.info(
+            "satisfaction survey employee_id=%s score=%s category=%s",
+            payload.employee_id,
+            payload.score,
+            category,
+        )
+        return {"status": "ok"}
 
     @app.post("/payroll/run")
     async def run_payroll(payload: PayrollRunPayload) -> dict[str, int | str]:

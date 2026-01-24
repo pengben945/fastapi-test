@@ -359,3 +359,21 @@ def test_asset_management_flow() -> None:
         json={"reason": "obsolete"},
     )
     assert retired.status_code == 200
+
+
+def test_satisfaction_survey() -> None:
+    dept = client.post("/departments", json={"name": "People"})
+    employee = client.post(
+        "/employees",
+        json={"name": "Uma", "department_id": dept.json()["id"], "title": "People Ops"},
+    )
+    survey = client.post(
+        "/surveys/satisfaction",
+        json={
+            "employee_id": employee.json()["id"],
+            "score": 4,
+            "comment": "good",
+            "category": "culture",
+        },
+    )
+    assert survey.status_code == 200
