@@ -43,6 +43,9 @@ performance_reviews = meter.create_counter(
 performance_decisions = meter.create_counter(
     "performance_decisions_total", description="Performance review decisions"
 )
+promotions = meter.create_counter(
+    "employee_promotions_total", description="Employee promotions"
+)
 
 
 class DepartmentCreate(BaseModel):
@@ -89,6 +92,12 @@ class ReviewDecisionPayload(BaseModel):
 
 class DepartmentTransferPayload(BaseModel):
     department_id: int
+    reason: str | None = None
+
+
+class PromotionPayload(BaseModel):
+    new_title: str
+    effective_date: str
     reason: str | None = None
 
 
@@ -192,6 +201,29 @@ def create_app() -> FastAPI:
             old_department,
             payload.department_id,
             payload.reason or "",
+        )
+        return employee
+
+    @app.post("/employees/{employee_id}/promotion")
+    async def promote_employee(
+        employee_id: int, payload: PromotionPayload
+    ) -> dict[str, int | str]:
+        employee = app.state.employees.get(employee_id)
+        if not employee:
+            raise HTTPException(status_code=404, detail="employee not found")
+        if not payload.new_title.strip():
+            raise HTTPException(status_code=400, detail="invalid title")
+        if not payload.effective_date or len(payload.effective_date) != 10:
+            raise HTTPException(status_code=400, detail="invalid effective date")
+        old_title = employee["title"]
+        employee["title"] = payload.new_title
+        promotions.add(1, {"department_id": str(employee["department_id"])})
+        logger.info(
+            "promotion employee_id=%s from=%s to=%s effective_date=%s",
+            employee_id,
+            old_title,
+            payload.new_title,
+            payload.effective_date,
         )
         return employee
 

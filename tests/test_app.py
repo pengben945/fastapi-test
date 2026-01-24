@@ -112,3 +112,21 @@ def test_department_transfer() -> None:
     )
     assert transfer.status_code == 200
     assert transfer.json()["department_id"] == dept2.json()["id"]
+
+
+def test_employee_promotion() -> None:
+    dept = client.post("/departments", json={"name": "Engineering"})
+    employee = client.post(
+        "/employees",
+        json={"name": "Mia", "department_id": dept.json()["id"], "title": "Engineer"},
+    )
+    promotion = client.post(
+        f"/employees/{employee.json()['id']}/promotion",
+        json={
+            "new_title": "Senior Engineer",
+            "effective_date": "2026-02-01",
+            "reason": "performance",
+        },
+    )
+    assert promotion.status_code == 200
+    assert promotion.json()["title"] == "Senior Engineer"

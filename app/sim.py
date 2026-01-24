@@ -44,6 +44,7 @@ class Simulator:
             "review_create",
             "review_decision",
             "department_transfer",
+            "promotion",
         ]
         async with httpx.AsyncClient(timeout=5.0) as client:
             while True:
@@ -161,6 +162,20 @@ class Simulator:
             }
             await client.post(
                 f"{self.base_url}/employees/{employee_id}/transfer", json=payload
+            )
+            return
+
+        if action == "promotion":
+            if not self._employees:
+                return
+            employee_id = random.choice(self._employees)
+            payload = {
+                "new_title": random.choice(["Senior Engineer", "Lead", "Manager"]),
+                "effective_date": random.choice(["2026-02-01", "2026-03-01"]),
+                "reason": random.choice(["performance", "leadership", "tenure"]),
+            }
+            await client.post(
+                f"{self.base_url}/employees/{employee_id}/promotion", json=payload
             )
             return
 
