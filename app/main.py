@@ -3,6 +3,7 @@ import logging
 import os
 import random
 import time
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
@@ -136,6 +137,7 @@ class EmployeeCreate(BaseModel):
 class AttendancePayload(BaseModel):
     status: str
     note: str | None = None
+    timestamp: str | None = None
 
 
 class PayrollRunPayload(BaseModel):
@@ -914,11 +916,29 @@ def create_app() -> FastAPI:
         status = payload.status.lower()
         if status not in {"in", "out"}:
             raise HTTPException(status_code=400, detail="invalid attendance status")
+        event_time = time.time()
+        if payload.timestamp:
+            try:
+                cleaned = payload.timestamp.replace("Z", "+00:00")
+                parsed = datetime.fromisoformat(cleaned)
+                event_time = parsed.timestamp()
+            except ValueError:
+                raise HTTPException(status_code=400, detail="invalid timestamp") from None
+        if event_time > time.time() + 300:
+            raise HTTPException(status_code=400, detail="timestamp in future")
+        if event_time < time.time() - 86400:
+            raise HTTPException(status_code=400, detail="timestamp too old")
+        last_record = next(
+            (rec for rec in reversed(app.state.attendance) if rec["employee_id"] == employee_id),
+            None,
+        )
+        if last_record and last_record["status"] == status:
+            raise HTTPException(status_code=409, detail="duplicate attendance status")
         record = {
             "employee_id": employee_id,
             "status": status,
             "note": payload.note,
-            "ts": time.time(),
+            "ts": event_time,
         }
         app.state.attendance.append(record)
         attendance_checkins.add(1, {"status": status})

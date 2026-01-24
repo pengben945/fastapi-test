@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 
 os.environ["SIM_ENABLED"] = "false"
 os.environ["OTEL_SDK_DISABLED"] = "true"
@@ -313,6 +314,11 @@ def test_attendance_anomaly_flow() -> None:
         json={"status": "in", "note": "late"},
     )
     assert checkin.status_code == 200
+    duplicate = client.post(
+        f"/employees/{employee.json()['id']}/attendance",
+        json={"status": "in", "note": "duplicate"},
+    )
+    assert duplicate.status_code == 409
     anomaly = client.post(
         "/attendance/anomalies",
         json={
@@ -330,6 +336,20 @@ def test_attendance_anomaly_flow() -> None:
     assert resolve.status_code == 200
     stats = client.get("/attendance/stats")
     assert stats.status_code == 200
+
+
+def test_attendance_future_timestamp() -> None:
+    dept = client.post("/departments", json={"name": "Field"})
+    employee = client.post(
+        "/employees",
+        json={"name": "Tina", "department_id": dept.json()["id"], "title": "Field"},
+    )
+    future_ts = (datetime.utcnow() + timedelta(hours=2)).isoformat() + "Z"
+    response = client.post(
+        f"/employees/{employee.json()['id']}/attendance",
+        json={"status": "in", "timestamp": future_ts},
+    )
+    assert response.status_code == 400
 
 
 def test_asset_management_flow() -> None:
