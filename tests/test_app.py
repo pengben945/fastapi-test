@@ -73,3 +73,27 @@ def test_leave_request_and_decision() -> None:
         json={"approved": True, "approver": "manager_1"},
     )
     assert decision.status_code == 200
+
+
+def test_performance_review_flow() -> None:
+    dept = client.post("/departments", json={"name": "Sales"})
+    employee = client.post(
+        "/employees",
+        json={"name": "Noah", "department_id": dept.json()["id"], "title": "Sales"},
+    )
+    review = client.post(
+        "/performance/reviews",
+        json={
+            "employee_id": employee.json()["id"],
+            "period": "2026-01",
+            "score": 4,
+            "summary": "solid",
+        },
+    )
+    assert review.status_code == 200
+    review_id = review.json()["id"]
+    decision = client.post(
+        f"/performance/reviews/{review_id}/decision",
+        json={"final_rating": "A", "reviewer": "manager_1"},
+    )
+    assert decision.status_code == 200

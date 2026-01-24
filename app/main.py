@@ -37,6 +37,12 @@ leave_requests = meter.create_counter(
 leave_approvals = meter.create_counter(
     "leave_approvals_total", description="Leave approvals"
 )
+performance_reviews = meter.create_counter(
+    "performance_reviews_total", description="Performance reviews created"
+)
+performance_decisions = meter.create_counter(
+    "performance_decisions_total", description="Performance review decisions"
+)
 
 
 class DepartmentCreate(BaseModel):
@@ -69,6 +75,18 @@ class LeaveDecisionPayload(BaseModel):
     approver: str
 
 
+class ReviewCreatePayload(BaseModel):
+    employee_id: int
+    period: str
+    score: int
+    summary: str | None = None
+
+
+class ReviewDecisionPayload(BaseModel):
+    final_rating: str
+    reviewer: str
+
+
 def create_app() -> FastAPI:
     setup_logging()
     setup_telemetry(SERVICE_NAME)
@@ -80,9 +98,11 @@ def create_app() -> FastAPI:
     app.state.employees = {}
     app.state.attendance = []
     app.state.leave_requests = {}
+    app.state.performance_reviews = {}
     app.state.next_department_id = 1
     app.state.next_employee_id = 1000
     app.state.next_leave_id = 1
+    app.state.next_review_id = 1
 
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next):
@@ -210,6 +230,55 @@ def create_app() -> FastAPI:
         record["decided_at"] = time.time()
         leave_approvals.add(1, {"status": status})
         logger.info("leave request %s id=%s approver=%s", status, leave_id, payload.approver)
+        return record
+
+    @app.post("/performance/reviews")
+    async def create_review(payload: ReviewCreatePayload) -> dict[str, int | str]:
+        if payload.employee_id not in app.state.employees:
+            raise HTTPException(status_code=404, detail="employee not found")
+        if payload.score < 1 or payload.score > 5:
+            raise HTTPException(status_code=400, detail="invalid score")
+        if not payload.period or len(payload.period) != 7 or payload.period[4] != "-":
+            raise HTTPException(status_code=400, detail="invalid period format")
+        review_id = app.state.next_review_id
+        app.state.next_review_id += 1
+        record = {
+            "id": review_id,
+            "employee_id": payload.employee_id,
+            "period": payload.period,
+            "score": payload.score,
+            "summary": payload.summary,
+            "status": "submitted",
+            "final_rating": None,
+            "reviewer": None,
+            "created_at": time.time(),
+        }
+        app.state.performance_reviews[review_id] = record
+        performance_reviews.add(1, {"period": payload.period})
+        logger.info(
+            "performance review created id=%s employee_id=%s period=%s",
+            review_id,
+            payload.employee_id,
+            payload.period,
+        )
+        return record
+
+    @app.post("/performance/reviews/{review_id}/decision")
+    async def decide_review(review_id: int, payload: ReviewDecisionPayload) -> dict[str, int | str]:
+        record = app.state.performance_reviews.get(review_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="review not found")
+        if record["status"] != "submitted":
+            raise HTTPException(status_code=409, detail="review already decided")
+        rating = payload.final_rating.strip().upper()
+        if rating not in {"A", "B", "C"}:
+            raise HTTPException(status_code=400, detail="invalid rating")
+        record["status"] = "finalized"
+        record["final_rating"] = rating
+        record["reviewer"] = payload.reviewer
+        record["decided_at"] = time.time()
+        performance_decisions.add(1, {"final_rating": rating})
+        logger.info("performance review finalized id=%s rating=%s", review_id, rating)
         return record
 
     @app.on_event("startup")

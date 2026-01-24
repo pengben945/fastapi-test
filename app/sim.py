@@ -41,6 +41,8 @@ class Simulator:
             "payroll",
             "leave_request",
             "leave_decision",
+            "review_create",
+            "review_decision",
         ]
         async with httpx.AsyncClient(timeout=5.0) as client:
             while True:
@@ -114,6 +116,37 @@ class Simulator:
             }
             await client.post(
                 f"{self.base_url}/leave/requests/{leave_id}/decision", json=payload
+            )
+            return
+
+        if action == "review_create":
+            if not self._employees:
+                return
+            payload = {
+                "employee_id": random.choice(self._employees),
+                "period": random.choice(["2025-12", "2026-01"]),
+                "score": random.randint(1, 5),
+                "summary": random.choice(["solid", "excellent", "needs improvement"]),
+            }
+            response = await client.post(
+                f"{self.base_url}/performance/reviews", json=payload
+            )
+            if response.status_code == 200:
+                review_id = response.json().get("id")
+                if isinstance(review_id, int):
+                    setattr(self, "_last_review_id", review_id)
+            return
+
+        if action == "review_decision":
+            review_id = getattr(self, "_last_review_id", None)
+            if not review_id:
+                return
+            payload = {
+                "final_rating": random.choice(["A", "B", "C"]),
+                "reviewer": random.choice(["hr_lead", "manager_1"]),
+            }
+            await client.post(
+                f"{self.base_url}/performance/reviews/{review_id}/decision", json=payload
             )
             return
 
