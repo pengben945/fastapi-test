@@ -32,6 +32,9 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 uvicorn app.main:app --reload
 - `POST /employees` create employee
 - `GET /employees/{id}` get employee
 - `POST /employees/{id}/attendance` check-in/out
+- `POST /attendance/anomalies` create attendance anomaly
+- `POST /attendance/anomalies/{id}/resolve` resolve anomaly
+- `GET /attendance/stats` attendance statistics
 - `POST /employees/{id}/transfer` transfer department
 - `POST /employees/{id}/promotion` promote employee
 - `POST /payroll/run` simulate payroll run

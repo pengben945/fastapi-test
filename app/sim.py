@@ -38,6 +38,9 @@ class Simulator:
             "create_department",
             "create_employee",
             "attendance",
+            "attendance_anomaly",
+            "attendance_stats",
+            "attendance_anomaly_resolve",
             "payroll",
             "leave_request",
             "leave_decision",
@@ -101,11 +104,45 @@ class Simulator:
                 return
             payload: dict[str, Any] = {
                 "status": random.choice(["in", "out"]),
+                "note": random.choice(["on_time", "late", "remote"]),
             }
             employee_id = random.choice(self._employees)
             await client.post(
                 f"{self.base_url}/employees/{employee_id}/attendance", json=payload
             )
+            return
+
+        if action == "attendance_anomaly":
+            if not self._employees:
+                return
+            payload = {
+                "employee_id": random.choice(self._employees),
+                "anomaly_type": random.choice(["late", "missing_checkout", "no_show"]),
+                "note": random.choice(["system_detected", "manual_report"]),
+            }
+            response = await client.post(
+                f"{self.base_url}/attendance/anomalies", json=payload
+            )
+            if response.status_code == 200:
+                anomaly_id = response.json().get("id")
+                if isinstance(anomaly_id, int):
+                    setattr(self, "_last_anomaly_id", anomaly_id)
+            return
+
+        if action == "attendance_anomaly_resolve":
+            anomaly_id = getattr(self, "_last_anomaly_id", None)
+            if not anomaly_id:
+                return
+            payload = {
+                "resolution": random.choice(["manager_confirmed", "system_fix"]),
+            }
+            await client.post(
+                f"{self.base_url}/attendance/anomalies/{anomaly_id}/resolve", json=payload
+            )
+            return
+
+        if action == "attendance_stats":
+            await client.get(f"{self.base_url}/attendance/stats")
             return
 
         if action == "leave_request":

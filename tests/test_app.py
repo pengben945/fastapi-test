@@ -300,3 +300,33 @@ def test_travel_request_flow() -> None:
         json={"verified": True, "reviewer": "finance_1"},
     )
     assert review.status_code == 200
+
+
+def test_attendance_anomaly_flow() -> None:
+    dept = client.post("/departments", json={"name": "Ops"})
+    employee = client.post(
+        "/employees",
+        json={"name": "Quinn", "department_id": dept.json()["id"], "title": "Ops"},
+    )
+    checkin = client.post(
+        f"/employees/{employee.json()['id']}/attendance",
+        json={"status": "in", "note": "late"},
+    )
+    assert checkin.status_code == 200
+    anomaly = client.post(
+        "/attendance/anomalies",
+        json={
+            "employee_id": employee.json()["id"],
+            "anomaly_type": "late",
+            "note": "manual_report",
+        },
+    )
+    assert anomaly.status_code == 200
+    anomaly_id = anomaly.json()["id"]
+    resolve = client.post(
+        f"/attendance/anomalies/{anomaly_id}/resolve",
+        json={"resolution": "manager_confirmed"},
+    )
+    assert resolve.status_code == 200
+    stats = client.get("/attendance/stats")
+    assert stats.status_code == 200

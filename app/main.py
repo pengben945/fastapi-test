@@ -28,6 +28,15 @@ employee_created = meter.create_counter(
 attendance_checkins = meter.create_counter(
     "attendance_checkins_total", description="Attendance check-ins"
 )
+attendance_anomalies = meter.create_counter(
+    "attendance_anomalies_total", description="Attendance anomalies"
+)
+attendance_resolutions = meter.create_counter(
+    "attendance_resolutions_total", description="Attendance anomalies resolved"
+)
+attendance_stats_requests = meter.create_counter(
+    "attendance_stats_requests_total", description="Attendance stats requests"
+)
 payroll_runs = meter.create_counter(
     "payroll_runs_total", description="Payroll runs"
 )
@@ -102,6 +111,7 @@ class EmployeeCreate(BaseModel):
 
 class AttendancePayload(BaseModel):
     status: str
+    note: str | None = None
 
 
 class PayrollRunPayload(BaseModel):
@@ -234,6 +244,16 @@ class TravelReviewPayload(BaseModel):
     reviewer: str
 
 
+class AttendanceAnomalyCreatePayload(BaseModel):
+    employee_id: int
+    anomaly_type: str
+    note: str | None = None
+
+
+class AttendanceAnomalyResolvePayload(BaseModel):
+    resolution: str
+
+
 def create_app() -> FastAPI:
     setup_logging()
     setup_telemetry(SERVICE_NAME)
@@ -244,6 +264,7 @@ def create_app() -> FastAPI:
     app.state.departments = {}
     app.state.employees = {}
     app.state.attendance = []
+    app.state.attendance_anomalies = {}
     app.state.leave_requests = {}
     app.state.travel_requests = {}
     app.state.performance_reviews = {}
@@ -260,6 +281,7 @@ def create_app() -> FastAPI:
     app.state.next_onboarding_id = 1
     app.state.next_offboarding_id = 1
     app.state.next_training_id = 1
+    app.state.next_anomaly_id = 1
 
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next):
@@ -799,11 +821,90 @@ def create_app() -> FastAPI:
         status = payload.status.lower()
         if status not in {"in", "out"}:
             raise HTTPException(status_code=400, detail="invalid attendance status")
-        record = {"employee_id": employee_id, "status": status, "ts": time.time()}
+        record = {
+            "employee_id": employee_id,
+            "status": status,
+            "note": payload.note,
+            "ts": time.time(),
+        }
         app.state.attendance.append(record)
         attendance_checkins.add(1, {"status": status})
-        logger.info("attendance %s employee_id=%s", status, employee_id)
+        logger.info("attendance %s employee_id=%s note=%s", status, employee_id, payload.note or "")
         return {"status": "ok"}
+
+    @app.post("/attendance/anomalies")
+    async def create_attendance_anomaly(
+        payload: AttendanceAnomalyCreatePayload,
+    ) -> dict[str, int | str]:
+        if payload.employee_id not in app.state.employees:
+            raise HTTPException(status_code=404, detail="employee not found")
+        anomaly_type = payload.anomaly_type.strip().lower()
+        if anomaly_type not in {"late", "missing_checkout", "no_show"}:
+            raise HTTPException(status_code=400, detail="invalid anomaly type")
+        anomaly_id = app.state.next_anomaly_id
+        app.state.next_anomaly_id += 1
+        record = {
+            "id": anomaly_id,
+            "employee_id": payload.employee_id,
+            "anomaly_type": anomaly_type,
+            "note": payload.note,
+            "status": "open",
+            "created_at": time.time(),
+            "resolution": None,
+            "resolved_at": None,
+        }
+        app.state.attendance_anomalies[anomaly_id] = record
+        attendance_anomalies.add(1, {"type": anomaly_type})
+        logger.info(
+            "attendance anomaly created id=%s employee_id=%s type=%s",
+            anomaly_id,
+            payload.employee_id,
+            anomaly_type,
+        )
+        return record
+
+    @app.post("/attendance/anomalies/{anomaly_id}/resolve")
+    async def resolve_attendance_anomaly(
+        anomaly_id: int, payload: AttendanceAnomalyResolvePayload
+    ) -> dict[str, int | str]:
+        record = app.state.attendance_anomalies.get(anomaly_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="anomaly not found")
+        if record["status"] != "open":
+            raise HTTPException(status_code=409, detail="anomaly already resolved")
+        record["status"] = "resolved"
+        record["resolution"] = payload.resolution
+        record["resolved_at"] = time.time()
+        attendance_resolutions.add(1, {"type": record["anomaly_type"]})
+        logger.info(
+            "attendance anomaly resolved id=%s resolution=%s",
+            anomaly_id,
+            payload.resolution,
+        )
+        return record
+
+    @app.get("/attendance/stats")
+    async def attendance_stats() -> dict[str, int]:
+        total = len(app.state.attendance)
+        total_in = sum(1 for record in app.state.attendance if record["status"] == "in")
+        total_out = sum(1 for record in app.state.attendance if record["status"] == "out")
+        open_anomalies = sum(
+            1 for record in app.state.attendance_anomalies.values() if record["status"] == "open"
+        )
+        resolved_anomalies = sum(
+            1
+            for record in app.state.attendance_anomalies.values()
+            if record["status"] == "resolved"
+        )
+        attendance_stats_requests.add(1, {})
+        logger.info("attendance stats total=%s open=%s", total, open_anomalies)
+        return {
+            "total": total,
+            "checkins": total_in,
+            "checkouts": total_out,
+            "open_anomalies": open_anomalies,
+            "resolved_anomalies": resolved_anomalies,
+        }
 
     @app.post("/payroll/run")
     async def run_payroll(payload: PayrollRunPayload) -> dict[str, int | str]:
