@@ -396,3 +396,22 @@ def test_health_declaration() -> None:
         },
     )
     assert declaration.status_code == 200
+
+
+def test_department_merge() -> None:
+    dept_a = client.post("/departments", json={"name": "Alpha"})
+    dept_b = client.post("/departments", json={"name": "Beta"})
+    employee = client.post(
+        "/employees",
+        json={"name": "Will", "department_id": dept_a.json()["id"], "title": "Ops"},
+    )
+    merge = client.post(
+        "/departments/merge",
+        json={
+            "source_department_id": dept_a.json()["id"],
+            "target_department_id": dept_b.json()["id"],
+            "reason": "reorg",
+        },
+    )
+    assert merge.status_code == 200
+    assert employee.json()["id"] in merge.json()["moved_employees"]

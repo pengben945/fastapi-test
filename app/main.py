@@ -25,6 +25,9 @@ request_latency = meter.create_histogram(
 employee_created = meter.create_counter(
     "employee_created_total", description="Employees created"
 )
+department_merges = meter.create_counter(
+    "department_merges_total", description="Department merges"
+)
 attendance_checkins = meter.create_counter(
     "attendance_checkins_total", description="Attendance check-ins"
 )
@@ -116,6 +119,12 @@ travel_reviews = meter.create_counter(
 
 class DepartmentCreate(BaseModel):
     name: str
+
+
+class DepartmentMergePayload(BaseModel):
+    source_department_id: int
+    target_department_id: int
+    reason: str | None = None
 
 
 class EmployeeCreate(BaseModel):
@@ -376,6 +385,36 @@ def create_app() -> FastAPI:
     @app.get("/departments")
     async def list_departments() -> dict[str, list[dict[str, int | str]]]:
         return {"items": list(app.state.departments.values())}
+
+    @app.post("/departments/merge")
+    async def merge_departments(
+        payload: DepartmentMergePayload,
+    ) -> dict[str, int | str | list]:
+        if payload.source_department_id == payload.target_department_id:
+            raise HTTPException(status_code=400, detail="departments must differ")
+        source = app.state.departments.get(payload.source_department_id)
+        target = app.state.departments.get(payload.target_department_id)
+        if not source or not target:
+            raise HTTPException(status_code=404, detail="department not found")
+        moved_employees = []
+        for employee in app.state.employees.values():
+            if employee["department_id"] == payload.source_department_id:
+                employee["department_id"] = payload.target_department_id
+                moved_employees.append(employee["id"])
+        app.state.departments.pop(payload.source_department_id, None)
+        department_merges.add(1, {"target_department_id": str(payload.target_department_id)})
+        logger.info(
+            "department merge source=%s target=%s moved=%s reason=%s",
+            payload.source_department_id,
+            payload.target_department_id,
+            len(moved_employees),
+            payload.reason or "",
+        )
+        return {
+            "source_department_id": payload.source_department_id,
+            "target_department_id": payload.target_department_id,
+            "moved_employees": moved_employees,
+        }
 
     @app.post("/employees")
     async def create_employee(payload: EmployeeCreate) -> dict[str, int | str]:

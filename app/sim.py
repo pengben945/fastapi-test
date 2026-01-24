@@ -37,6 +37,7 @@ class Simulator:
         actions = [
             "create_department",
             "create_employee",
+            "department_merge",
             "attendance",
             "attendance_anomaly",
             "attendance_stats",
@@ -88,6 +89,20 @@ class Simulator:
                 department_id = response.json().get("id")
                 if isinstance(department_id, int):
                     self._departments.append(department_id)
+            return
+
+        if action == "department_merge":
+            if len(self._departments) < 2:
+                return
+            source, target = random.sample(self._departments, 2)
+            payload = {
+                "source_department_id": source,
+                "target_department_id": target,
+                "reason": random.choice(["reorg", "efficiency"]),
+            }
+            response = await client.post(f"{self.base_url}/departments/merge", json=payload)
+            if response.status_code == 200 and source in self._departments:
+                self._departments.remove(source)
             return
 
         if action == "create_employee":
