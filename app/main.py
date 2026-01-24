@@ -70,6 +70,12 @@ training_enrollments = meter.create_counter(
 training_completions = meter.create_counter(
     "training_completions_total", description="Training completions"
 )
+training_exams = meter.create_counter(
+    "training_exams_total", description="Training exams submitted"
+)
+training_exam_results = meter.create_counter(
+    "training_exam_results_total", description="Training exam results"
+)
 
 
 class DepartmentCreate(BaseModel):
@@ -185,6 +191,11 @@ class TrainingEnrollPayload(BaseModel):
 
 
 class TrainingCompletePayload(BaseModel):
+    employee_id: int
+    score: int
+
+
+class TrainingExamPayload(BaseModel):
     employee_id: int
     score: int
 
@@ -586,6 +597,7 @@ def create_app() -> FastAPI:
             "trainer": payload.trainer,
             "enrolled": [],
             "completed": [],
+            "exams": {},
             "created_at": time.time(),
         }
         app.state.trainings[training_id] = record
@@ -615,6 +627,33 @@ def create_app() -> FastAPI:
         )
         return training
 
+    @app.post("/trainings/{training_id}/exam")
+    async def submit_training_exam(
+        training_id: int, payload: TrainingExamPayload
+    ) -> dict[str, int | str | list]:
+        training = app.state.trainings.get(training_id)
+        if not training:
+            raise HTTPException(status_code=404, detail="training not found")
+        if payload.employee_id not in training["enrolled"]:
+            raise HTTPException(status_code=409, detail="not enrolled")
+        if payload.score < 0 or payload.score > 100:
+            raise HTTPException(status_code=400, detail="invalid score")
+        passed = payload.score >= 60
+        training["exams"][payload.employee_id] = {
+            "score": payload.score,
+            "passed": passed,
+            "submitted_at": time.time(),
+        }
+        training_exams.add(1, {"training": training["name"]})
+        training_exam_results.add(1, {"training": training["name"], "passed": str(passed)})
+        logger.info(
+            "training exam submitted training_id=%s employee_id=%s passed=%s",
+            training_id,
+            payload.employee_id,
+            passed,
+        )
+        return training
+
     @app.post("/trainings/{training_id}/complete")
     async def complete_training(
         training_id: int, payload: TrainingCompletePayload
@@ -624,6 +663,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="training not found")
         if payload.employee_id not in training["enrolled"]:
             raise HTTPException(status_code=409, detail="not enrolled")
+        exam = training["exams"].get(payload.employee_id)
+        if not exam or not exam["passed"]:
+            raise HTTPException(status_code=400, detail="exam not passed")
         if payload.score < 0 or payload.score > 100:
             raise HTTPException(status_code=400, detail="invalid score")
         if payload.employee_id in training["completed"]:

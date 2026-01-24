@@ -233,8 +233,35 @@ def test_training_flow() -> None:
         json={"employee_id": employee.json()["id"], "status": "registered"},
     )
     assert enroll.status_code == 200
+    exam = client.post(
+        f"/trainings/{training_id}/exam",
+        json={"employee_id": employee.json()["id"], "score": 85},
+    )
+    assert exam.status_code == 200
     complete = client.post(
         f"/trainings/{training_id}/complete",
         json={"employee_id": employee.json()["id"], "score": 92},
     )
     assert complete.status_code == 200
+
+
+def test_training_complete_requires_exam() -> None:
+    dept = client.post("/departments", json={"name": "Learning"})
+    employee = client.post(
+        "/employees",
+        json={"name": "Owen", "department_id": dept.json()["id"], "title": "CS"},
+    )
+    training = client.post(
+        "/trainings",
+        json={"name": "Security 101", "capacity": 1, "trainer": "trainer_b"},
+    )
+    training_id = training.json()["id"]
+    client.post(
+        f"/trainings/{training_id}/enroll",
+        json={"employee_id": employee.json()["id"], "status": "registered"},
+    )
+    complete = client.post(
+        f"/trainings/{training_id}/complete",
+        json={"employee_id": employee.json()["id"], "score": 80},
+    )
+    assert complete.status_code == 400

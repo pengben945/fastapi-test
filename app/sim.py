@@ -55,6 +55,7 @@ class Simulator:
             "offboarding_finalize",
             "training_create",
             "training_enroll",
+            "training_exam",
             "training_complete",
         ]
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -332,21 +333,38 @@ class Simulator:
             training_id = getattr(self, "_last_training_id", None)
             if not training_id or not self._employees:
                 return
+            employee_id = random.choice(self._employees)
             payload = {
-                "employee_id": random.choice(self._employees),
+                "employee_id": employee_id,
                 "status": random.choice(["registered", "confirmed"]),
             }
             await client.post(
                 f"{self.base_url}/trainings/{training_id}/enroll", json=payload
             )
+            setattr(self, "_last_training_employee", employee_id)
+            return
+
+        if action == "training_exam":
+            training_id = getattr(self, "_last_training_id", None)
+            employee_id = getattr(self, "_last_training_employee", None)
+            if not training_id or not employee_id:
+                return
+            payload = {
+                "employee_id": employee_id,
+                "score": random.randint(50, 100),
+            }
+            await client.post(
+                f"{self.base_url}/trainings/{training_id}/exam", json=payload
+            )
             return
 
         if action == "training_complete":
             training_id = getattr(self, "_last_training_id", None)
-            if not training_id or not self._employees:
+            employee_id = getattr(self, "_last_training_employee", None)
+            if not training_id or not employee_id:
                 return
             payload = {
-                "employee_id": random.choice(self._employees),
+                "employee_id": employee_id,
                 "score": random.randint(60, 100),
             }
             await client.post(
