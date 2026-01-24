@@ -47,6 +47,9 @@ class Simulator:
             "promotion",
             "salary_request",
             "salary_decision",
+            "onboarding_case",
+            "onboarding_step",
+            "onboarding_finalize",
         ]
         async with httpx.AsyncClient(timeout=5.0) as client:
             while True:
@@ -215,6 +218,50 @@ class Simulator:
             await client.post(
                 f"{self.base_url}/salary/adjustments/{request_id}/decision",
                 json=payload,
+            )
+            return
+
+        if action == "onboarding_case":
+            if not self._employees:
+                return
+            payload = {
+                "employee_id": random.choice(self._employees),
+                "start_date": random.choice(["2026-02-03", "2026-02-10"]),
+                "equipment": random.choice(["laptop", "desktop"]),
+                "buddy": random.choice(["alice", "bob", "cindy"]),
+            }
+            response = await client.post(
+                f"{self.base_url}/onboarding/cases", json=payload
+            )
+            if response.status_code == 200:
+                case_id = response.json().get("id")
+                if isinstance(case_id, int):
+                    setattr(self, "_last_onboarding_id", case_id)
+            return
+
+        if action == "onboarding_step":
+            case_id = getattr(self, "_last_onboarding_id", None)
+            if not case_id:
+                return
+            payload = {
+                "step": random.choice(
+                    ["account_setup", "equipment_handover", "policy_briefing"]
+                ),
+                "completed": True,
+                "note": random.choice(["ok", "done", "completed"]),
+            }
+            await client.post(
+                f"{self.base_url}/onboarding/cases/{case_id}/steps", json=payload
+            )
+            return
+
+        if action == "onboarding_finalize":
+            case_id = getattr(self, "_last_onboarding_id", None)
+            if not case_id:
+                return
+            payload = {"hr_reviewer": random.choice(["hr_lead", "hr_ops"])}
+            await client.post(
+                f"{self.base_url}/onboarding/cases/{case_id}/finalize", json=payload
             )
             return
 

@@ -52,6 +52,12 @@ salary_requests = meter.create_counter(
 salary_decisions = meter.create_counter(
     "salary_adjust_decisions_total", description="Salary adjustment decisions"
 )
+onboarding_cases = meter.create_counter(
+    "onboarding_cases_total", description="Onboarding cases created"
+)
+onboarding_steps = meter.create_counter(
+    "onboarding_steps_total", description="Onboarding steps completed"
+)
 
 
 class DepartmentCreate(BaseModel):
@@ -121,6 +127,23 @@ class SalaryAdjustDecisionPayload(BaseModel):
     level: str
 
 
+class OnboardingCreatePayload(BaseModel):
+    employee_id: int
+    start_date: str
+    equipment: str
+    buddy: str | None = None
+
+
+class OnboardingStepPayload(BaseModel):
+    step: str
+    completed: bool = True
+    note: str | None = None
+
+
+class OnboardingFinalizePayload(BaseModel):
+    hr_reviewer: str
+
+
 def create_app() -> FastAPI:
     setup_logging()
     setup_telemetry(SERVICE_NAME)
@@ -134,11 +157,13 @@ def create_app() -> FastAPI:
     app.state.leave_requests = {}
     app.state.performance_reviews = {}
     app.state.salary_adjustments = {}
+    app.state.onboarding_cases = {}
     app.state.next_department_id = 1
     app.state.next_employee_id = 1000
     app.state.next_leave_id = 1
     app.state.next_review_id = 1
     app.state.next_salary_id = 1
+    app.state.next_onboarding_id = 1
 
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next):
@@ -324,6 +349,89 @@ def create_app() -> FastAPI:
             request_id,
             record["status"],
             level,
+        )
+        return record
+
+    @app.post("/onboarding/cases")
+    async def create_onboarding_case(
+        payload: OnboardingCreatePayload,
+    ) -> dict[str, int | str | list]:
+        if payload.employee_id not in app.state.employees:
+            raise HTTPException(status_code=404, detail="employee not found")
+        if not payload.start_date or len(payload.start_date) != 10:
+            raise HTTPException(status_code=400, detail="invalid start date")
+        if not payload.equipment.strip():
+            raise HTTPException(status_code=400, detail="invalid equipment")
+        onboarding_id = app.state.next_onboarding_id
+        app.state.next_onboarding_id += 1
+        steps = [
+            {"name": "account_setup", "completed": False},
+            {"name": "equipment_handover", "completed": False},
+            {"name": "policy_briefing", "completed": False},
+            {"name": "security_training", "completed": False},
+        ]
+        record = {
+            "id": onboarding_id,
+            "employee_id": payload.employee_id,
+            "start_date": payload.start_date,
+            "equipment": payload.equipment,
+            "buddy": payload.buddy,
+            "status": "in_progress",
+            "steps": steps,
+            "notes": [],
+            "created_at": time.time(),
+        }
+        app.state.onboarding_cases[onboarding_id] = record
+        onboarding_cases.add(1, {"equipment": payload.equipment})
+        logger.info(
+            "onboarding case created id=%s employee_id=%s start_date=%s",
+            onboarding_id,
+            payload.employee_id,
+            payload.start_date,
+        )
+        return record
+
+    @app.post("/onboarding/cases/{case_id}/steps")
+    async def complete_onboarding_step(
+        case_id: int, payload: OnboardingStepPayload
+    ) -> dict[str, int | str | list]:
+        record = app.state.onboarding_cases.get(case_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="onboarding case not found")
+        step = payload.step.strip().lower()
+        for item in record["steps"]:
+            if item["name"] == step:
+                item["completed"] = payload.completed
+                if payload.note:
+                    record["notes"].append(
+                        {"step": step, "note": payload.note, "at": time.time()}
+                    )
+                onboarding_steps.add(1, {"step": step})
+                logger.info(
+                    "onboarding step updated case_id=%s step=%s completed=%s",
+                    case_id,
+                    step,
+                    payload.completed,
+                )
+                return record
+        raise HTTPException(status_code=404, detail="step not found")
+
+    @app.post("/onboarding/cases/{case_id}/finalize")
+    async def finalize_onboarding(
+        case_id: int, payload: OnboardingFinalizePayload
+    ) -> dict[str, int | str | list]:
+        record = app.state.onboarding_cases.get(case_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="onboarding case not found")
+        if record["status"] != "in_progress":
+            raise HTTPException(status_code=409, detail="onboarding already finalized")
+        if not all(step["completed"] for step in record["steps"]):
+            raise HTTPException(status_code=400, detail="steps not completed")
+        record["status"] = "completed"
+        record["hr_reviewer"] = payload.hr_reviewer
+        record["completed_at"] = time.time()
+        logger.info(
+            "onboarding finalized case_id=%s reviewer=%s", case_id, payload.hr_reviewer
         )
         return record
 

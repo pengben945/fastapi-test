@@ -156,3 +156,32 @@ def test_salary_adjustment_flow() -> None:
     )
     assert decision.status_code == 200
     assert decision.json()["status"] in {"approved", "pending"}
+
+
+def test_onboarding_flow() -> None:
+    dept = client.post("/departments", json={"name": "IT"})
+    employee = client.post(
+        "/employees",
+        json={"name": "Zoe", "department_id": dept.json()["id"], "title": "IT"},
+    )
+    case = client.post(
+        "/onboarding/cases",
+        json={
+            "employee_id": employee.json()["id"],
+            "start_date": "2026-02-03",
+            "equipment": "laptop",
+            "buddy": "alice",
+        },
+    )
+    assert case.status_code == 200
+    case_id = case.json()["id"]
+    step = client.post(
+        f"/onboarding/cases/{case_id}/steps",
+        json={"step": "account_setup", "completed": True, "note": "done"},
+    )
+    assert step.status_code == 200
+    finalize = client.post(
+        f"/onboarding/cases/{case_id}/finalize",
+        json={"hr_reviewer": "hr_lead"},
+    )
+    assert finalize.status_code == 200

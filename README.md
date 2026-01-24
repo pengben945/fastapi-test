@@ -41,6 +41,9 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 uvicorn app.main:app --reload
 - `POST /performance/reviews/{id}/decision` finalize review
 - `POST /salary/adjustments` request salary adjustment
 - `POST /salary/adjustments/{id}/decision` approve/reject adjustment
+- `POST /onboarding/cases` create onboarding case
+- `POST /onboarding/cases/{id}/steps` complete onboarding step
+- `POST /onboarding/cases/{id}/finalize` finalize onboarding
 
 ## Public access without domain (self-signed TLS)
 
