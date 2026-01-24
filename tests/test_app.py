@@ -185,3 +185,32 @@ def test_onboarding_flow() -> None:
         json={"hr_reviewer": "hr_lead"},
     )
     assert finalize.status_code == 200
+
+
+def test_offboarding_flow() -> None:
+    dept = client.post("/departments", json={"name": "Ops"})
+    employee = client.post(
+        "/employees",
+        json={"name": "Leo", "department_id": dept.json()["id"], "title": "Ops"},
+    )
+    case = client.post(
+        "/offboarding/cases",
+        json={
+            "employee_id": employee.json()["id"],
+            "last_workday": "2026-02-28",
+            "reason": "resignation",
+            "manager": "mgr_a",
+        },
+    )
+    assert case.status_code == 200
+    case_id = case.json()["id"]
+    step = client.post(
+        f"/offboarding/cases/{case_id}/steps",
+        json={"step": "asset_return", "completed": True, "note": "returned"},
+    )
+    assert step.status_code == 200
+    finalize = client.post(
+        f"/offboarding/cases/{case_id}/finalize",
+        json={"hr_reviewer": "hr_lead"},
+    )
+    assert finalize.status_code == 200

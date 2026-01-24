@@ -50,6 +50,9 @@ class Simulator:
             "onboarding_case",
             "onboarding_step",
             "onboarding_finalize",
+            "offboarding_case",
+            "offboarding_step",
+            "offboarding_finalize",
         ]
         async with httpx.AsyncClient(timeout=5.0) as client:
             while True:
@@ -262,6 +265,50 @@ class Simulator:
             payload = {"hr_reviewer": random.choice(["hr_lead", "hr_ops"])}
             await client.post(
                 f"{self.base_url}/onboarding/cases/{case_id}/finalize", json=payload
+            )
+            return
+
+        if action == "offboarding_case":
+            if not self._employees:
+                return
+            payload = {
+                "employee_id": random.choice(self._employees),
+                "last_workday": random.choice(["2026-02-15", "2026-02-28"]),
+                "reason": random.choice(["resignation", "termination", "retirement"]),
+                "manager": random.choice(["mgr_a", "mgr_b"]),
+            }
+            response = await client.post(
+                f"{self.base_url}/offboarding/cases", json=payload
+            )
+            if response.status_code == 200:
+                case_id = response.json().get("id")
+                if isinstance(case_id, int):
+                    setattr(self, "_last_offboarding_id", case_id)
+            return
+
+        if action == "offboarding_step":
+            case_id = getattr(self, "_last_offboarding_id", None)
+            if not case_id:
+                return
+            payload = {
+                "step": random.choice(
+                    ["knowledge_transfer", "account_deactivation", "asset_return"]
+                ),
+                "completed": True,
+                "note": random.choice(["done", "ok", "completed"]),
+            }
+            await client.post(
+                f"{self.base_url}/offboarding/cases/{case_id}/steps", json=payload
+            )
+            return
+
+        if action == "offboarding_finalize":
+            case_id = getattr(self, "_last_offboarding_id", None)
+            if not case_id:
+                return
+            payload = {"hr_reviewer": random.choice(["hr_lead", "hr_ops"])}
+            await client.post(
+                f"{self.base_url}/offboarding/cases/{case_id}/finalize", json=payload
             )
             return
 

@@ -44,6 +44,9 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 uvicorn app.main:app --reload
 - `POST /onboarding/cases` create onboarding case
 - `POST /onboarding/cases/{id}/steps` complete onboarding step
 - `POST /onboarding/cases/{id}/finalize` finalize onboarding
+- `POST /offboarding/cases` create offboarding case
+- `POST /offboarding/cases/{id}/steps` complete offboarding step
+- `POST /offboarding/cases/{id}/finalize` finalize offboarding
 
 ## Public access without domain (self-signed TLS)
 

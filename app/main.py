@@ -58,6 +58,12 @@ onboarding_cases = meter.create_counter(
 onboarding_steps = meter.create_counter(
     "onboarding_steps_total", description="Onboarding steps completed"
 )
+offboarding_cases = meter.create_counter(
+    "offboarding_cases_total", description="Offboarding cases created"
+)
+offboarding_steps = meter.create_counter(
+    "offboarding_steps_total", description="Offboarding steps completed"
+)
 
 
 class DepartmentCreate(BaseModel):
@@ -144,6 +150,23 @@ class OnboardingFinalizePayload(BaseModel):
     hr_reviewer: str
 
 
+class OffboardingCreatePayload(BaseModel):
+    employee_id: int
+    last_workday: str
+    reason: str
+    manager: str
+
+
+class OffboardingStepPayload(BaseModel):
+    step: str
+    completed: bool = True
+    note: str | None = None
+
+
+class OffboardingFinalizePayload(BaseModel):
+    hr_reviewer: str
+
+
 def create_app() -> FastAPI:
     setup_logging()
     setup_telemetry(SERVICE_NAME)
@@ -158,12 +181,14 @@ def create_app() -> FastAPI:
     app.state.performance_reviews = {}
     app.state.salary_adjustments = {}
     app.state.onboarding_cases = {}
+    app.state.offboarding_cases = {}
     app.state.next_department_id = 1
     app.state.next_employee_id = 1000
     app.state.next_leave_id = 1
     app.state.next_review_id = 1
     app.state.next_salary_id = 1
     app.state.next_onboarding_id = 1
+    app.state.next_offboarding_id = 1
 
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next):
@@ -432,6 +457,93 @@ def create_app() -> FastAPI:
         record["completed_at"] = time.time()
         logger.info(
             "onboarding finalized case_id=%s reviewer=%s", case_id, payload.hr_reviewer
+        )
+        return record
+
+    @app.post("/offboarding/cases")
+    async def create_offboarding_case(
+        payload: OffboardingCreatePayload,
+    ) -> dict[str, int | str | list]:
+        employee = app.state.employees.get(payload.employee_id)
+        if not employee:
+            raise HTTPException(status_code=404, detail="employee not found")
+        if not payload.last_workday or len(payload.last_workday) != 10:
+            raise HTTPException(status_code=400, detail="invalid last workday")
+        reason = payload.reason.strip().lower()
+        if reason not in {"resignation", "termination", "retirement"}:
+            raise HTTPException(status_code=400, detail="invalid offboarding reason")
+        steps = [
+            {"name": "knowledge_transfer", "completed": False},
+            {"name": "account_deactivation", "completed": False},
+            {"name": "asset_return", "completed": False},
+            {"name": "exit_interview", "completed": False},
+        ]
+        case_id = app.state.next_offboarding_id
+        app.state.next_offboarding_id += 1
+        record = {
+            "id": case_id,
+            "employee_id": payload.employee_id,
+            "last_workday": payload.last_workday,
+            "reason": reason,
+            "manager": payload.manager,
+            "status": "in_progress",
+            "steps": steps,
+            "notes": [],
+            "created_at": time.time(),
+        }
+        app.state.offboarding_cases[case_id] = record
+        offboarding_cases.add(1, {"reason": reason})
+        logger.info(
+            "offboarding case created id=%s employee_id=%s reason=%s",
+            case_id,
+            payload.employee_id,
+            reason,
+        )
+        return record
+
+    @app.post("/offboarding/cases/{case_id}/steps")
+    async def complete_offboarding_step(
+        case_id: int, payload: OffboardingStepPayload
+    ) -> dict[str, int | str | list]:
+        record = app.state.offboarding_cases.get(case_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="offboarding case not found")
+        step = payload.step.strip().lower()
+        for item in record["steps"]:
+            if item["name"] == step:
+                item["completed"] = payload.completed
+                if payload.note:
+                    record["notes"].append(
+                        {"step": step, "note": payload.note, "at": time.time()}
+                    )
+                offboarding_steps.add(1, {"step": step})
+                logger.info(
+                    "offboarding step updated case_id=%s step=%s completed=%s",
+                    case_id,
+                    step,
+                    payload.completed,
+                )
+                return record
+        raise HTTPException(status_code=404, detail="step not found")
+
+    @app.post("/offboarding/cases/{case_id}/finalize")
+    async def finalize_offboarding(
+        case_id: int, payload: OffboardingFinalizePayload
+    ) -> dict[str, int | str | list]:
+        record = app.state.offboarding_cases.get(case_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="offboarding case not found")
+        if record["status"] != "in_progress":
+            raise HTTPException(status_code=409, detail="offboarding already finalized")
+        if not all(step["completed"] for step in record["steps"]):
+            raise HTTPException(status_code=400, detail="steps not completed")
+        record["status"] = "completed"
+        record["hr_reviewer"] = payload.hr_reviewer
+        record["completed_at"] = time.time()
+        logger.info(
+            "offboarding finalized case_id=%s reviewer=%s",
+            case_id,
+            payload.hr_reviewer,
         )
         return record
 
