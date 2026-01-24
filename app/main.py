@@ -46,6 +46,12 @@ performance_decisions = meter.create_counter(
 promotions = meter.create_counter(
     "employee_promotions_total", description="Employee promotions"
 )
+salary_requests = meter.create_counter(
+    "salary_adjust_requests_total", description="Salary adjustment requests"
+)
+salary_decisions = meter.create_counter(
+    "salary_adjust_decisions_total", description="Salary adjustment decisions"
+)
 
 
 class DepartmentCreate(BaseModel):
@@ -101,6 +107,20 @@ class PromotionPayload(BaseModel):
     reason: str | None = None
 
 
+class SalaryAdjustRequestPayload(BaseModel):
+    employee_id: int
+    current_salary: float
+    proposed_salary: float
+    effective_date: str
+    reason: str | None = None
+
+
+class SalaryAdjustDecisionPayload(BaseModel):
+    approved: bool
+    approver: str
+    level: str
+
+
 def create_app() -> FastAPI:
     setup_logging()
     setup_telemetry(SERVICE_NAME)
@@ -113,10 +133,12 @@ def create_app() -> FastAPI:
     app.state.attendance = []
     app.state.leave_requests = {}
     app.state.performance_reviews = {}
+    app.state.salary_adjustments = {}
     app.state.next_department_id = 1
     app.state.next_employee_id = 1000
     app.state.next_leave_id = 1
     app.state.next_review_id = 1
+    app.state.next_salary_id = 1
 
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next):
@@ -226,6 +248,84 @@ def create_app() -> FastAPI:
             payload.effective_date,
         )
         return employee
+
+    @app.post("/salary/adjustments")
+    async def create_salary_adjustment(
+        payload: SalaryAdjustRequestPayload,
+    ) -> dict[str, int | str | float]:
+        if payload.employee_id not in app.state.employees:
+            raise HTTPException(status_code=404, detail="employee not found")
+        if payload.current_salary <= 0 or payload.proposed_salary <= 0:
+            raise HTTPException(status_code=400, detail="invalid salary")
+        if payload.proposed_salary == payload.current_salary:
+            raise HTTPException(status_code=400, detail="no change in salary")
+        if not payload.effective_date or len(payload.effective_date) != 10:
+            raise HTTPException(status_code=400, detail="invalid effective date")
+        change_ratio = (payload.proposed_salary - payload.current_salary) / payload.current_salary
+        approval_level = "hr"
+        if change_ratio >= 0.2:
+            approval_level = "director"
+        elif change_ratio >= 0.1:
+            approval_level = "manager"
+        request_id = app.state.next_salary_id
+        app.state.next_salary_id += 1
+        record = {
+            "id": request_id,
+            "employee_id": payload.employee_id,
+            "current_salary": payload.current_salary,
+            "proposed_salary": payload.proposed_salary,
+            "effective_date": payload.effective_date,
+            "reason": payload.reason,
+            "status": "pending",
+            "required_level": approval_level,
+            "approvals": [],
+            "created_at": time.time(),
+        }
+        app.state.salary_adjustments[request_id] = record
+        salary_requests.add(1, {"required_level": approval_level})
+        logger.info(
+            "salary request created id=%s employee_id=%s level=%s",
+            request_id,
+            payload.employee_id,
+            approval_level,
+        )
+        return record
+
+    @app.post("/salary/adjustments/{request_id}/decision")
+    async def decide_salary_adjustment(
+        request_id: int, payload: SalaryAdjustDecisionPayload
+    ) -> dict[str, int | str | float]:
+        record = app.state.salary_adjustments.get(request_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="salary request not found")
+        if record["status"] != "pending":
+            raise HTTPException(status_code=409, detail="salary request already decided")
+        level = payload.level.strip().lower()
+        if level not in {"hr", "manager", "director"}:
+            raise HTTPException(status_code=400, detail="invalid approval level")
+        record["approvals"].append(
+            {
+                "approver": payload.approver,
+                "level": level,
+                "approved": payload.approved,
+                "at": time.time(),
+            }
+        )
+        if not payload.approved:
+            record["status"] = "rejected"
+        else:
+            required_level = record["required_level"]
+            order = ["hr", "manager", "director"]
+            if order.index(level) >= order.index(required_level):
+                record["status"] = "approved"
+        salary_decisions.add(1, {"status": record["status"], "level": level})
+        logger.info(
+            "salary decision request_id=%s status=%s level=%s",
+            request_id,
+            record["status"],
+            level,
+        )
+        return record
 
     @app.post("/employees/{employee_id}/attendance")
     async def checkin(employee_id: int, payload: AttendancePayload) -> dict[str, str]:

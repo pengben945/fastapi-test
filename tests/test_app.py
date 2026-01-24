@@ -130,3 +130,29 @@ def test_employee_promotion() -> None:
     )
     assert promotion.status_code == 200
     assert promotion.json()["title"] == "Senior Engineer"
+
+
+def test_salary_adjustment_flow() -> None:
+    dept = client.post("/departments", json={"name": "HR"})
+    employee = client.post(
+        "/employees",
+        json={"name": "Ivy", "department_id": dept.json()["id"], "title": "HR"},
+    )
+    request = client.post(
+        "/salary/adjustments",
+        json={
+            "employee_id": employee.json()["id"],
+            "current_salary": 5000,
+            "proposed_salary": 5500,
+            "effective_date": "2026-02-01",
+            "reason": "performance",
+        },
+    )
+    assert request.status_code == 200
+    request_id = request.json()["id"]
+    decision = client.post(
+        f"/salary/adjustments/{request_id}/decision",
+        json={"approved": True, "approver": "hr_lead", "level": "hr"},
+    )
+    assert decision.status_code == 200
+    assert decision.json()["status"] in {"approved", "pending"}

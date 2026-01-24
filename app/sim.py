@@ -45,6 +45,8 @@ class Simulator:
             "review_decision",
             "department_transfer",
             "promotion",
+            "salary_request",
+            "salary_decision",
         ]
         async with httpx.AsyncClient(timeout=5.0) as client:
             while True:
@@ -176,6 +178,43 @@ class Simulator:
             }
             await client.post(
                 f"{self.base_url}/employees/{employee_id}/promotion", json=payload
+            )
+            return
+
+        if action == "salary_request":
+            if not self._employees:
+                return
+            employee_id = random.choice(self._employees)
+            current_salary = random.choice([5000, 7000, 9000, 12000])
+            proposed_salary = round(current_salary * random.choice([1.05, 1.1, 1.2]), 2)
+            payload = {
+                "employee_id": employee_id,
+                "current_salary": current_salary,
+                "proposed_salary": proposed_salary,
+                "effective_date": random.choice(["2026-02-01", "2026-03-01"]),
+                "reason": random.choice(["performance", "market_adjustment", "promotion"]),
+            }
+            response = await client.post(
+                f"{self.base_url}/salary/adjustments", json=payload
+            )
+            if response.status_code == 200:
+                request_id = response.json().get("id")
+                if isinstance(request_id, int):
+                    setattr(self, "_last_salary_id", request_id)
+            return
+
+        if action == "salary_decision":
+            request_id = getattr(self, "_last_salary_id", None)
+            if not request_id:
+                return
+            payload = {
+                "approved": random.choice([True, False]),
+                "approver": random.choice(["hr_lead", "manager_1", "director_1"]),
+                "level": random.choice(["hr", "manager", "director"]),
+            }
+            await client.post(
+                f"{self.base_url}/salary/adjustments/{request_id}/decision",
+                json=payload,
             )
             return
 
