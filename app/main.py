@@ -1147,7 +1147,7 @@ def create_app() -> FastAPI:
                 event_time = parsed.timestamp()
             except ValueError:
                 raise HTTPException(status_code=400, detail="invalid timestamp") from None
-        if event_time > time.time() + 300:
+        if event_time > time.time() + 180:
             raise HTTPException(status_code=400, detail="timestamp in future")
         if event_time < time.time() - 86400:
             raise HTTPException(status_code=400, detail="timestamp too old")
