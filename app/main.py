@@ -401,6 +401,70 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok", "service": SERVICE_NAME, "version": "1.1.0"}
 
+    @app.get("/stats")
+    async def get_system_stats() -> dict[str, int | dict]:
+        """获取系统统计信息"""
+        # 基础统计
+        total_departments = len(app.state.departments)
+        total_employees = len(app.state.employees)
+        
+        # 请假统计
+        total_leave_requests = len(app.state.leave_requests)
+        approved_leaves = sum(1 for req in app.state.leave_requests.values() if req.get("status") == "approved")
+        pending_leaves = sum(1 for req in app.state.leave_requests.values() if req.get("status") == "pending")
+        
+        # 晋升统计
+        total_promotion_requests = len(app.state.promotion_requests)
+        finalized_promotions = sum(1 for req in app.state.promotion_requests.values() if req.get("hr_reviewer"))
+        
+        # 薪资调整统计
+        total_salary_requests = len(app.state.salary_requests)
+        approved_salary_adjustments = sum(1 for req in app.state.salary_requests.values() if req.get("status") == "approved")
+        
+        # 入职/离职统计
+        total_onboarding = len(app.state.onboarding_cases)
+        completed_onboarding = sum(1 for case in app.state.onboarding_cases.values() if case.get("status") == "completed")
+        total_offboarding = len(app.state.offboarding_cases)
+        completed_offboarding = sum(1 for case in app.state.offboarding_cases.values() if case.get("status") == "completed")
+        
+        # 培训统计
+        total_trainings = len(app.state.trainings)
+        total_training_enrollments = len(app.state.training_enrollments)
+        
+        logger.info("system stats retrieved")
+        
+        return {
+            "organization": {
+                "departments": total_departments,
+                "employees": total_employees,
+            },
+            "leave_management": {
+                "total_requests": total_leave_requests,
+                "approved": approved_leaves,
+                "pending": pending_leaves,
+            },
+            "promotions": {
+                "total_requests": total_promotion_requests,
+                "finalized": finalized_promotions,
+            },
+            "salary_adjustments": {
+                "total_requests": total_salary_requests,
+                "approved": approved_salary_adjustments,
+            },
+            "onboarding": {
+                "total_cases": total_onboarding,
+                "completed": completed_onboarding,
+            },
+            "offboarding": {
+                "total_cases": total_offboarding,
+                "completed": completed_offboarding,
+            },
+            "training": {
+                "total_courses": total_trainings,
+                "total_enrollments": total_training_enrollments,
+            },
+        }
+
     @app.post("/departments")
     async def create_department(payload: DepartmentCreate) -> dict[str, int | str]:
         if not payload.name.strip():
