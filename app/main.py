@@ -1059,6 +1059,7 @@ def create_app() -> FastAPI:
         return record
 
     @app.post("/travel/requests/{request_id}/decision")
+    
     async def decide_travel(
         request_id: int, payload: TravelDecisionPayload
     ) -> dict[str, int | str]:
