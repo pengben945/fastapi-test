@@ -1057,6 +1057,7 @@ def create_app() -> FastAPI:
             payload.destination,
         )
         return record
+        
 
     @app.post("/travel/requests/{request_id}/decision")
     async def decide_travel(
