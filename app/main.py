@@ -142,6 +142,10 @@ travel_reviews = meter.create_counter(
 )
 
 
+def format_ts(ts: float) -> str:
+    return datetime.utcfromtimestamp(ts).isoformat() + "Z"
+
+
 class DepartmentCreate(BaseModel):
     name: str
 
@@ -621,6 +625,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="invalid effective date")
         request_id = app.state.next_promotion_id
         app.state.next_promotion_id += 1
+        created_at = time.time()
         record = {
             "id": request_id,
             "employee_id": payload.employee_id,
@@ -634,17 +639,18 @@ def create_app() -> FastAPI:
             "history": [
                 {
                     "action": "created",
-                    "at": time.time(),
+                    "at": created_at,
                 }
             ],
         }
         app.state.promotion_requests[request_id] = record
         promotion_requests.add(1, {"department_id": str(employee["department_id"])})
         logger.info(
-            "promotion request created id=%s employee_id=%s to_title=%s",
+            "promotion request created id=%s employee_id=%s to_title=%s at=%s",
             request_id,
             payload.employee_id,
             payload.new_title,
+            format_ts(created_at),
         )
         return record
 
@@ -660,15 +666,17 @@ def create_app() -> FastAPI:
         status = "approved" if payload.approved else "rejected"
         record["status"] = status
         record["approver"] = payload.approver
+        decided_at = time.time()
         record["history"].append(
-            {"action": "decision", "status": status, "at": time.time()}
+            {"action": "decision", "status": status, "at": decided_at}
         )
         promotion_decisions.add(1, {"status": status})
         logger.info(
-            "promotion request %s id=%s approver=%s",
+            "promotion request %s id=%s approver=%s at=%s",
             status,
             request_id,
             payload.approver,
+            format_ts(decided_at),
         )
         return record
 
@@ -688,15 +696,17 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="employee not found")
         employee["title"] = record["to_title"]
         record["hr_reviewer"] = payload.hr_reviewer
+        finalized_at = time.time()
         record["history"].append(
-            {"action": "finalized", "at": time.time(), "reviewer": payload.hr_reviewer}
+            {"action": "finalized", "at": finalized_at, "reviewer": payload.hr_reviewer}
         )
         promotion_finalizations.add(1, {"department_id": str(employee["department_id"])})
         logger.info(
-            "promotion finalized id=%s employee_id=%s reviewer=%s",
+            "promotion finalized id=%s employee_id=%s reviewer=%s at=%s",
             request_id,
             record["employee_id"],
             payload.hr_reviewer,
+            format_ts(finalized_at),
         )
         return record
 
@@ -744,10 +754,11 @@ def create_app() -> FastAPI:
         app.state.salary_adjustments[request_id] = record
         salary_requests.add(1, {"required_level": approval_level})
         logger.info(
-            "salary request created id=%s employee_id=%s level=%s",
+            "salary request created id=%s employee_id=%s level=%s at=%s",
             request_id,
             payload.employee_id,
             approval_level,
+            format_ts(record["created_at"]),
         )
         return record
 
@@ -763,12 +774,13 @@ def create_app() -> FastAPI:
         level = payload.level.strip().lower()
         if level not in {"hr", "manager", "director"}:
             raise HTTPException(status_code=400, detail="invalid approval level")
+        decided_at = time.time()
         record["approvals"].append(
             {
                 "approver": payload.approver,
                 "level": level,
                 "approved": payload.approved,
-                "at": time.time(),
+                "at": decided_at,
             }
         )
         if not payload.approved:
@@ -780,10 +792,12 @@ def create_app() -> FastAPI:
                 record["status"] = "approved"
         salary_decisions.add(1, {"status": record["status"], "level": level})
         logger.info(
-            "salary decision request_id=%s status=%s level=%s",
+            "salary decision request_id=%s status=%s level=%s approver=%s at=%s",
             request_id,
             record["status"],
             level,
+            payload.approver,
+            format_ts(decided_at),
         )
         return record
 
@@ -819,10 +833,11 @@ def create_app() -> FastAPI:
         app.state.onboarding_cases[onboarding_id] = record
         onboarding_cases.add(1, {"equipment": payload.equipment})
         logger.info(
-            "onboarding case created id=%s employee_id=%s start_date=%s",
+            "onboarding case created id=%s employee_id=%s start_date=%s at=%s",
             onboarding_id,
             payload.employee_id,
             payload.start_date,
+            format_ts(record["created_at"]),
         )
         return record
 
@@ -866,7 +881,10 @@ def create_app() -> FastAPI:
         record["hr_reviewer"] = payload.hr_reviewer
         record["completed_at"] = time.time()
         logger.info(
-            "onboarding finalized case_id=%s reviewer=%s", case_id, payload.hr_reviewer
+            "onboarding finalized case_id=%s reviewer=%s at=%s",
+            case_id,
+            payload.hr_reviewer,
+            format_ts(record["completed_at"]),
         )
         return record
 
@@ -904,10 +922,11 @@ def create_app() -> FastAPI:
         app.state.offboarding_cases[case_id] = record
         offboarding_cases.add(1, {"reason": reason})
         logger.info(
-            "offboarding case created id=%s employee_id=%s reason=%s",
+            "offboarding case created id=%s employee_id=%s reason=%s at=%s",
             case_id,
             payload.employee_id,
             reason,
+            format_ts(record["created_at"]),
         )
         return record
 
@@ -951,9 +970,10 @@ def create_app() -> FastAPI:
         record["hr_reviewer"] = payload.hr_reviewer
         record["completed_at"] = time.time()
         logger.info(
-            "offboarding finalized case_id=%s reviewer=%s",
+            "offboarding finalized case_id=%s reviewer=%s at=%s",
             case_id,
             payload.hr_reviewer,
+            format_ts(record["completed_at"]),
         )
         return record
 
@@ -1081,10 +1101,11 @@ def create_app() -> FastAPI:
         app.state.travel_requests[request_id] = record
         travel_requests.add(1, {"destination": payload.destination})
         logger.info(
-            "travel request created id=%s employee_id=%s destination=%s",
+            "travel request created id=%s employee_id=%s destination=%s at=%s",
             request_id,
             payload.employee_id,
             payload.destination,
+            format_ts(record["created_at"]),
         )
         return record
         
@@ -1104,7 +1125,11 @@ def create_app() -> FastAPI:
         record["decided_at"] = time.time()
         travel_approvals.add(1, {"status": status})
         logger.info(
-            "travel request %s id=%s approver=%s", status, request_id, payload.approver
+            "travel request %s id=%s approver=%s at=%s",
+            status,
+            request_id,
+            payload.approver,
+            format_ts(record["decided_at"]),
         )
         return record
 
@@ -1124,10 +1149,11 @@ def create_app() -> FastAPI:
         record["review_status"] = "verified" if payload.verified else "recheck"
         travel_reviews.add(1, {"review_status": record["review_status"]})
         logger.info(
-            "travel review id=%s status=%s reviewer=%s",
+            "travel review id=%s status=%s reviewer=%s at=%s",
             request_id,
             record["review_status"],
             payload.reviewer,
+            format_ts(record["reviewed_at"]),
         )
         return record
 
@@ -1165,7 +1191,13 @@ def create_app() -> FastAPI:
         }
         app.state.attendance.append(record)
         attendance_checkins.add(1, {"status": status})
-        logger.info("attendance %s employee_id=%s note=%s", status, employee_id, payload.note or "")
+        logger.info(
+            "attendance %s employee_id=%s note=%s at=%s",
+            status,
+            employee_id,
+            payload.note or "",
+            format_ts(record["ts"]),
+        )
         return {"status": "ok"}
 
     @app.post("/attendance/anomalies")
@@ -1277,17 +1309,21 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="employee not found")
         asset["status"] = "assigned"
         asset["assigned_to"] = payload.employee_id
+        assigned_at = time.time()
         asset["history"].append(
             {
                 "action": "assigned",
                 "employee_id": payload.employee_id,
                 "note": payload.note,
-                "at": time.time(),
+                "at": assigned_at,
             }
         )
         asset_assignments.add(1, {"asset_type": asset["asset_type"]})
         logger.info(
-            "asset assigned id=%s employee_id=%s", asset_id, payload.employee_id
+            "asset assigned id=%s employee_id=%s at=%s",
+            asset_id,
+            payload.employee_id,
+            format_ts(assigned_at),
         )
         return asset
 
@@ -1301,18 +1337,24 @@ def create_app() -> FastAPI:
         if asset["status"] != "assigned":
             raise HTTPException(status_code=409, detail="asset not assigned")
         asset["status"] = "available"
+        returned_at = time.time()
         asset["history"].append(
             {
                 "action": "returned",
                 "employee_id": asset["assigned_to"],
                 "condition": payload.condition,
                 "note": payload.note,
-                "at": time.time(),
+                "at": returned_at,
             }
         )
         asset["assigned_to"] = None
         asset_returns.add(1, {"condition": payload.condition})
-        logger.info("asset returned id=%s condition=%s", asset_id, payload.condition)
+        logger.info(
+            "asset returned id=%s condition=%s at=%s",
+            asset_id,
+            payload.condition,
+            format_ts(returned_at),
+        )
         return asset
 
     @app.post("/assets/{asset_id}/retire")
@@ -1327,11 +1369,17 @@ def create_app() -> FastAPI:
         if asset["status"] == "assigned":
             raise HTTPException(status_code=409, detail="asset assigned to employee")
         asset["status"] = "retired"
+        retired_at = time.time()
         asset["history"].append(
-            {"action": "retired", "reason": payload.reason, "at": time.time()}
+            {"action": "retired", "reason": payload.reason, "at": retired_at}
         )
         asset_retirements.add(1, {"asset_type": asset["asset_type"]})
-        logger.info("asset retired id=%s reason=%s", asset_id, payload.reason)
+        logger.info(
+            "asset retired id=%s reason=%s at=%s",
+            asset_id,
+            payload.reason,
+            format_ts(retired_at),
+        )
         return asset
 
     @app.post("/surveys/satisfaction")
@@ -1395,7 +1443,12 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="invalid month format")
         await asyncio.sleep(random.uniform(0.05, 0.2))
         payroll_runs.add(1, {"month": payload.month})
-        logger.info("payroll run month=%s employees=%s", payload.month, len(app.state.employees))
+        logger.info(
+            "payroll run month=%s employees=%s at=%s",
+            payload.month,
+            len(app.state.employees),
+            format_ts(time.time()),
+        )
         return {"status": "ok", "month": payload.month, "employees": len(app.state.employees)}
 
     @app.post("/leave/requests")
@@ -1421,7 +1474,13 @@ def create_app() -> FastAPI:
         }
         app.state.leave_requests[leave_id] = record
         leave_requests.add(1, {"leave_type": leave_type})
-        logger.info("leave request created id=%s employee_id=%s type=%s", leave_id, payload.employee_id, leave_type)
+        logger.info(
+            "leave request created id=%s employee_id=%s type=%s at=%s",
+            leave_id,
+            payload.employee_id,
+            leave_type,
+            format_ts(record["created_at"]),
+        )
         return record
 
     @app.post("/leave/requests/{leave_id}/decision")
@@ -1436,7 +1495,13 @@ def create_app() -> FastAPI:
         record["approver"] = payload.approver
         record["decided_at"] = time.time()
         leave_approvals.add(1, {"status": status})
-        logger.info("leave request %s id=%s approver=%s", status, leave_id, payload.approver)
+        logger.info(
+            "leave request %s id=%s approver=%s at=%s",
+            status,
+            leave_id,
+            payload.approver,
+            format_ts(record["decided_at"]),
+        )
         return record
 
     @app.post("/leave/requests/{leave_id}/review")
@@ -1453,10 +1518,11 @@ def create_app() -> FastAPI:
         record["review_status"] = "verified" if payload.verified else "recheck"
         leave_reviews.add(1, {"review_status": record["review_status"]})
         logger.info(
-            "leave review id=%s status=%s reviewer=%s",
+            "leave review id=%s status=%s reviewer=%s at=%s",
             leave_id,
             record["review_status"],
             payload.reviewer,
+            format_ts(record["reviewed_at"]),
         )
         return record
 
@@ -1484,10 +1550,11 @@ def create_app() -> FastAPI:
         app.state.performance_reviews[review_id] = record
         performance_reviews.add(1, {"period": payload.period})
         logger.info(
-            "performance review created id=%s employee_id=%s period=%s",
+            "performance review created id=%s employee_id=%s period=%s at=%s",
             review_id,
             payload.employee_id,
             payload.period,
+            format_ts(record["created_at"]),
         )
         return record
 
@@ -1507,7 +1574,12 @@ def create_app() -> FastAPI:
         record["status"] = "submitted"
         record["submitted_at"] = time.time()
         performance_review_submissions.add(1, {"period": record["period"]})
-        logger.info("performance review submitted id=%s period=%s", review_id, record["period"])
+        logger.info(
+            "performance review submitted id=%s period=%s at=%s",
+            review_id,
+            record["period"],
+            format_ts(record["submitted_at"]),
+        )
         return record
 
     @app.post("/performance/reviews/{review_id}/decision")
@@ -1525,7 +1597,13 @@ def create_app() -> FastAPI:
         record["reviewer"] = payload.reviewer
         record["decided_at"] = time.time()
         performance_decisions.add(1, {"final_rating": rating})
-        logger.info("performance review finalized id=%s rating=%s", review_id, rating)
+        logger.info(
+            "performance review finalized id=%s rating=%s reviewer=%s at=%s",
+            review_id,
+            rating,
+            payload.reviewer,
+            format_ts(record["decided_at"]),
+        )
         return record
 
     @app.post("/performance/cycles")
@@ -1555,10 +1633,11 @@ def create_app() -> FastAPI:
         app.state.performance_cycles[cycle_id] = record
         performance_cycles.add(1, {"period": payload.period})
         logger.info(
-            "performance cycle created id=%s period=%s department_id=%s",
+            "performance cycle created id=%s period=%s department_id=%s at=%s",
             cycle_id,
             payload.period,
             payload.department_id,
+            format_ts(record["created_at"]),
         )
         return record
 
@@ -1632,10 +1711,11 @@ def create_app() -> FastAPI:
         cycle["closed_at"] = time.time()
         performance_cycle_closures.add(1, {"period": cycle["period"]})
         logger.info(
-            "performance cycle closed id=%s total=%s finalized=%s",
+            "performance cycle closed id=%s total=%s finalized=%s at=%s",
             cycle_id,
             total_reviews,
             finalized_reviews,
+            format_ts(cycle["closed_at"]),
         )
         return {
             "cycle_id": cycle_id,
