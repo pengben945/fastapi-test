@@ -107,6 +107,82 @@ def test_performance_review_flow() -> None:
     assert decision.status_code == 200
 
 
+def test_performance_cycle_flow() -> None:
+    dept = client.post("/departments", json={"name": "Ops"})
+    dept_id = dept.json()["id"]
+    employee_1 = client.post(
+        "/employees",
+        json={"name": "Uma", "department_id": dept_id, "title": "Ops"},
+    )
+    employee_2 = client.post(
+        "/employees",
+        json={"name": "Vic", "department_id": dept_id, "title": "Ops"},
+    )
+    assert employee_1.status_code == 200
+    assert employee_2.status_code == 200
+    cycle = client.post(
+        "/performance/cycles",
+        json={
+            "period": "2026-01",
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-31",
+            "department_id": dept_id,
+            "description": "Ops monthly review",
+        },
+    )
+    assert cycle.status_code == 200
+    cycle_id = cycle.json()["id"]
+    generated = client.post(f"/performance/cycles/{cycle_id}/generate")
+    assert generated.status_code == 200
+    assert generated.json()["created_reviews"] >= 2
+    cycle_detail = client.get(f"/performance/cycles/{cycle_id}")
+    assert cycle_detail.status_code == 200
+    assert cycle_detail.json()["total_reviews"] >= 2
+
+
+def test_performance_cycle_submit_and_close() -> None:
+    dept = client.post("/departments", json={"name": "QA"})
+    dept_id = dept.json()["id"]
+    employee = client.post(
+        "/employees",
+        json={"name": "Ken", "department_id": dept_id, "title": "QA"},
+    )
+    cycle = client.post(
+        "/performance/cycles",
+        json={
+            "period": "2026-02",
+            "start_date": "2026-02-01",
+            "end_date": "2026-02-28",
+            "department_id": dept_id,
+            "description": "QA monthly review",
+        },
+    )
+    cycle_id = cycle.json()["id"]
+    generated = client.post(f"/performance/cycles/{cycle_id}/generate")
+    assert generated.status_code == 200
+
+    review_id = None
+    for rid, review in client.app.state.performance_reviews.items():
+        if review.get("cycle_id") == cycle_id and review["employee_id"] == employee.json()["id"]:
+            review_id = rid
+            break
+    assert review_id is not None
+
+    submit = client.post(
+        f"/performance/reviews/{review_id}/submit",
+        json={"score": 4, "summary": "steady performance"},
+    )
+    assert submit.status_code == 200
+    decision = client.post(
+        f"/performance/reviews/{review_id}/decision",
+        json={"final_rating": "A", "reviewer": "lead_1"},
+    )
+    assert decision.status_code == 200
+    close = client.post(f"/performance/cycles/{cycle_id}/close")
+    assert close.status_code == 200
+    assert close.json()["status"] == "closed"
+
+
 def test_department_transfer() -> None:
     dept1 = client.post("/departments", json={"name": "Ops"})
     dept2 = client.post("/departments", json={"name": "Support"})

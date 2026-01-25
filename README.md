@@ -53,7 +53,12 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 uvicorn app.main:app --reload
 - `POST /leave/requests/{id}/decision` approve/reject leave
 - `POST /leave/requests/{id}/review` review leave request
 - `POST /performance/reviews` create performance review
+- `POST /performance/reviews/{id}/submit` submit cycle review (score/summary)
 - `POST /performance/reviews/{id}/decision` finalize review
+- `POST /performance/cycles` create performance cycle
+- `POST /performance/cycles/{id}/generate` generate cycle reviews
+- `POST /performance/cycles/{id}/close` close performance cycle
+- `GET /performance/cycles/{id}` get cycle summary
 - `POST /salary/adjustments` request salary adjustment
 - `POST /salary/adjustments/{id}/decision` approve/reject adjustment
 - `POST /onboarding/cases` create onboarding case

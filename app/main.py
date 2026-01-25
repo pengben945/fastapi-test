@@ -74,6 +74,21 @@ performance_reviews = meter.create_counter(
 performance_decisions = meter.create_counter(
     "performance_decisions_total", description="Performance review decisions"
 )
+performance_review_submissions = meter.create_counter(
+    "performance_review_submissions_total",
+    description="Performance review submissions",
+)
+performance_cycles = meter.create_counter(
+    "performance_cycles_total", description="Performance review cycles created"
+)
+performance_cycle_generations = meter.create_counter(
+    "performance_cycle_generations_total",
+    description="Performance review cycles generated",
+)
+performance_cycle_closures = meter.create_counter(
+    "performance_cycle_closures_total",
+    description="Performance review cycles closed",
+)
 promotions = meter.create_counter(
     "employee_promotions_total", description="Employee promotions"
 )
@@ -177,9 +192,22 @@ class ReviewCreatePayload(BaseModel):
     summary: str | None = None
 
 
+class ReviewSubmitPayload(BaseModel):
+    score: int
+    summary: str | None = None
+
+
 class ReviewDecisionPayload(BaseModel):
     final_rating: str
     reviewer: str
+
+
+class PerformanceCycleCreatePayload(BaseModel):
+    period: str
+    start_date: str
+    end_date: str
+    department_id: int | None = None
+    description: str | None = None
 
 
 class DepartmentTransferPayload(BaseModel):
@@ -357,6 +385,7 @@ def create_app() -> FastAPI:
     app.state.leave_requests = {}
     app.state.travel_requests = {}
     app.state.performance_reviews = {}
+    app.state.performance_cycles = {}
     app.state.salary_adjustments = {}
     app.state.onboarding_cases = {}
     app.state.offboarding_cases = {}
@@ -368,6 +397,7 @@ def create_app() -> FastAPI:
     app.state.next_leave_id = 1
     app.state.next_travel_id = 1
     app.state.next_review_id = 1
+    app.state.next_cycle_id = 1
     app.state.next_salary_id = 1
     app.state.next_onboarding_id = 1
     app.state.next_offboarding_id = 1
@@ -1461,6 +1491,25 @@ def create_app() -> FastAPI:
         )
         return record
 
+    @app.post("/performance/reviews/{review_id}/submit")
+    async def submit_review(
+        review_id: int, payload: ReviewSubmitPayload
+    ) -> dict[str, int | str]:
+        record = app.state.performance_reviews.get(review_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="review not found")
+        if record["status"] != "pending":
+            raise HTTPException(status_code=409, detail="review not pending")
+        if payload.score < 1 or payload.score > 5:
+            raise HTTPException(status_code=400, detail="invalid score")
+        record["score"] = payload.score
+        record["summary"] = payload.summary
+        record["status"] = "submitted"
+        record["submitted_at"] = time.time()
+        performance_review_submissions.add(1, {"period": record["period"]})
+        logger.info("performance review submitted id=%s period=%s", review_id, record["period"])
+        return record
+
     @app.post("/performance/reviews/{review_id}/decision")
     async def decide_review(review_id: int, payload: ReviewDecisionPayload) -> dict[str, int | str]:
         record = app.state.performance_reviews.get(review_id)
@@ -1478,6 +1527,143 @@ def create_app() -> FastAPI:
         performance_decisions.add(1, {"final_rating": rating})
         logger.info("performance review finalized id=%s rating=%s", review_id, rating)
         return record
+
+    @app.post("/performance/cycles")
+    async def create_performance_cycle(
+        payload: PerformanceCycleCreatePayload,
+    ) -> dict[str, int | str | None]:
+        if not payload.period or len(payload.period) != 7 or payload.period[4] != "-":
+            raise HTTPException(status_code=400, detail="invalid period format")
+        if not payload.start_date or len(payload.start_date) != 10:
+            raise HTTPException(status_code=400, detail="invalid start date")
+        if not payload.end_date or len(payload.end_date) != 10:
+            raise HTTPException(status_code=400, detail="invalid end date")
+        if payload.department_id is not None and payload.department_id not in app.state.departments:
+            raise HTTPException(status_code=404, detail="department not found")
+        cycle_id = app.state.next_cycle_id
+        app.state.next_cycle_id += 1
+        record = {
+            "id": cycle_id,
+            "period": payload.period,
+            "start_date": payload.start_date,
+            "end_date": payload.end_date,
+            "department_id": payload.department_id,
+            "description": payload.description,
+            "status": "open",
+            "created_at": time.time(),
+        }
+        app.state.performance_cycles[cycle_id] = record
+        performance_cycles.add(1, {"period": payload.period})
+        logger.info(
+            "performance cycle created id=%s period=%s department_id=%s",
+            cycle_id,
+            payload.period,
+            payload.department_id,
+        )
+        return record
+
+    @app.post("/performance/cycles/{cycle_id}/generate")
+    async def generate_cycle_reviews(cycle_id: int) -> dict[str, int]:
+        cycle = app.state.performance_cycles.get(cycle_id)
+        if not cycle:
+            raise HTTPException(status_code=404, detail="cycle not found")
+        if cycle["status"] != "open":
+            raise HTTPException(status_code=409, detail="cycle not open")
+        department_id = cycle["department_id"]
+        employees = [
+            employee_id
+            for employee_id, employee in app.state.employees.items()
+            if department_id is None or employee["department_id"] == department_id
+        ]
+        created = 0
+        for employee_id in employees:
+            exists = any(
+                review
+                for review in app.state.performance_reviews.values()
+                if review["employee_id"] == employee_id
+                and review["period"] == cycle["period"]
+            )
+            if exists:
+                continue
+            review_id = app.state.next_review_id
+            app.state.next_review_id += 1
+            record = {
+                "id": review_id,
+                "employee_id": employee_id,
+                "period": cycle["period"],
+                "score": None,
+                "summary": "auto generated",
+                "status": "pending",
+                "final_rating": None,
+                "reviewer": None,
+                "cycle_id": cycle_id,
+                "created_at": time.time(),
+            }
+            app.state.performance_reviews[review_id] = record
+            created += 1
+        performance_cycle_generations.add(1, {"period": cycle["period"]})
+        logger.info(
+            "performance cycle generated id=%s created=%s",
+            cycle_id,
+            created,
+        )
+        return {"cycle_id": cycle_id, "created_reviews": created}
+
+    @app.post("/performance/cycles/{cycle_id}/close")
+    async def close_cycle(cycle_id: int) -> dict[str, int | str]:
+        cycle = app.state.performance_cycles.get(cycle_id)
+        if not cycle:
+            raise HTTPException(status_code=404, detail="cycle not found")
+        if cycle["status"] != "open":
+            raise HTTPException(status_code=409, detail="cycle not open")
+        total_reviews = sum(
+            1
+            for review in app.state.performance_reviews.values()
+            if review.get("cycle_id") == cycle_id
+        )
+        finalized_reviews = sum(
+            1
+            for review in app.state.performance_reviews.values()
+            if review.get("cycle_id") == cycle_id and review.get("status") == "finalized"
+        )
+        if total_reviews > 0 and finalized_reviews < total_reviews:
+            raise HTTPException(status_code=409, detail="cycle has unfinished reviews")
+        cycle["status"] = "closed"
+        cycle["closed_at"] = time.time()
+        performance_cycle_closures.add(1, {"period": cycle["period"]})
+        logger.info(
+            "performance cycle closed id=%s total=%s finalized=%s",
+            cycle_id,
+            total_reviews,
+            finalized_reviews,
+        )
+        return {
+            "cycle_id": cycle_id,
+            "status": cycle["status"],
+            "total_reviews": total_reviews,
+            "finalized_reviews": finalized_reviews,
+        }
+
+    @app.get("/performance/cycles/{cycle_id}")
+    async def get_cycle(cycle_id: int) -> dict[str, int | str | None]:
+        cycle = app.state.performance_cycles.get(cycle_id)
+        if not cycle:
+            raise HTTPException(status_code=404, detail="cycle not found")
+        total_reviews = sum(
+            1
+            for review in app.state.performance_reviews.values()
+            if review.get("cycle_id") == cycle_id
+        )
+        finalized_reviews = sum(
+            1
+            for review in app.state.performance_reviews.values()
+            if review.get("cycle_id") == cycle_id and review.get("status") == "finalized"
+        )
+        return {
+            **cycle,
+            "total_reviews": total_reviews,
+            "finalized_reviews": finalized_reviews,
+        }
 
     @app.on_event("startup")
     async def start_simulation() -> None:
