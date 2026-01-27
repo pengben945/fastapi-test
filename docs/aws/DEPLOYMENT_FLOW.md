@@ -142,7 +142,6 @@ GitHub → Actions → 选择 workflow → Re-run jobs
 1. EC2 Console → Elastic IPs  
 2. Allocate Elastic IP address  
 3. Actions → Associate Elastic IP address  
-
 ---
 
 ## 10. 常见问题排查
