@@ -171,4 +171,5 @@ docker compose logs --tail=50 elasticsearch
 - 密码：htpasswd 中设置的密码
 - 使用 SSL：是
 - 跳过 SSL：是（自签证书）
+
 - CA 证书：可选（导入 `nginx/certs/server.crt`）
