@@ -8,5 +8,6 @@
 - [ ] Docker compose stack runs
 - [ ] Tests pass
 
+
 ## Notes
 - To be updated after validation.
